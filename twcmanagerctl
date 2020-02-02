@@ -14,8 +14,8 @@ stop() {
 
 status() {
    # ps auxww | fgrep TWCManager | fgrep -v grep
-   echo -n "TWC Manager is "
-   screen -ls twc -q || echo "NOT RUNNING" && echo "RUNNING, to connect run 'screen -r twc' and exit with Ctrl-A, Ctrl-D"
+   echo -n "TWC Manager running? "
+   screen -S twc -Q select && echo "YES! To connect run 'screen -r twc' and exit with Ctrl-A, Ctrl-D"
 }
 
 case "$1" in 
