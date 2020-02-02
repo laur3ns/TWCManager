@@ -1,5 +1,6 @@
 #!/bin/bash
-# description: Description comes here....
+# description: Script to easily start, stop or restart TWCManager, or check the status.
+# last update: Feb 2, 2020 by laur3ns
 
 start() {
     screen -dm -S twc -L -Logfile ~/scripts/twc/TWCManager.log ~/scripts/twc/TWCManager.py

@@ -240,7 +240,7 @@ dsmrState = '/home/pi/private/dsmr_state.json'
 # 9 includes raw RS-485 messages transmitted and received (2-3 per sec)
 # 10 is all info.
 # 11 is more than all info.  ;)
-debugLevel = 1
+debugLevel = 0
 
 # Choose whether to display milliseconds after time on each line of debug info.
 displayMilliseconds = False
@@ -1576,7 +1576,7 @@ class TWCSlave:
             if(
                 debugOutputCompare != self.lastHeartbeatDebugOutput
                 or abs(ampsUsed - lastAmpsUsed) >= 1.0
-                or time.time() - self.timeLastHeartbeatDebugOutput > 60 # was 600s
+                or time.time() - self.timeLastHeartbeatDebugOutput > 600
                 or debugLevel >= 11
             ):
                 print(time_now() + debugOutput)
@@ -1988,6 +1988,7 @@ class TWCSlave:
                 #if(ltNow.tm_hour < 6 or ltNow.tm_hour >= 21):
                 #    maxAmpsToDivideAmongSlaves = 0
                 #else:
+                #laur3ns: check always
                 queue_background_task({'cmd':'checkGreenEnergy'})
 
         # Use backgroundTasksLock to prevent the background thread from changing
@@ -2019,9 +2020,8 @@ class TWCSlave:
 
         # Allocate this slave a fraction of maxAmpsToDivideAmongSlaves divided
         # by the number of cars actually charging.
-        #Nicer82: Round amps instead of using int value to get more accurate amps.
-        #Laur3ns: back to int to avoid rounding up
-        fairShareAmps = int(maxAmpsToDivideAmongSlaves / numCarsCharging)
+        #Nicer82: to use this change with care, but in my case, it seems to work bettor on a EU charger rounding on 1 digit.
+        fairShareAmps = round(maxAmpsToDivideAmongSlaves / numCarsCharging,1)
         if(desiredAmpsOffered > fairShareAmps):
             desiredAmpsOffered = fairShareAmps
 
@@ -2184,9 +2184,8 @@ class TWCSlave:
             # one second and 12.0A the next second, the car reduces its power
             # use to ~5.14-5.23A and refuses to go higher. So it seems best to
             # stick with whole amps.
-            #Nicer82: Round amps instead of using int value to get more accurate amps.
-            #Laur3ns: int prevents rounding up, which could result in >1A overuse with 2+ TWCs
-            desiredAmpsOffered = int(desiredAmpsOffered)
+            #Nicer82: to use this change with care, but in my case, it seems to work bettor on a EU charger rounding on 1 digit.
+            desiredAmpsOffered = round(desiredAmpsOffered,1)
 
             if(self.lastAmpsOffered == 0
                and now - self.timeLastAmpsOfferedChanged < 60
@@ -2291,7 +2290,7 @@ class TWCSlave:
                         if(debugLevel >= 1):
                             print(time_now() + ': Car stuck when offered spikeAmpsToCancel6ALimit.  Offering 2 less.')
                         desiredAmpsOffered = spikeAmpsToCancel6ALimit - 2.0
-                    elif(now - self.timeLastAmpsOfferedChanged > 7): # Laur3ns: was 5s
+                    elif(now - self.timeLastAmpsOfferedChanged > 5):
                         # self.lastAmpsOffered hasn't gotten the car to draw
                         # enough amps for over 5 seconds, so try
                         # spikeAmpsToCancel6ALimit
@@ -2316,7 +2315,7 @@ class TWCSlave:
                     if(debugLevel >= 10):
                         print('Reduce amps: time - self.timeLastAmpsOfferedChanged ' +
                             str(int(now - self.timeLastAmpsOfferedChanged)))
-                    if(now - self.timeLastAmpsOfferedChanged < 3): # Laur3ns: wait a minimum of 3s
+                    if(now - self.timeLastAmpsOfferedChanged < 5):
                         desiredAmpsOffered = self.lastAmpsOffered
 
         # set_last_amps_offered does some final checks to see if the new
@@ -2453,7 +2452,7 @@ scheduledAmpsDaysBitmap = 0x7F
 chargeNowAmps = 0
 chargeNowTimeEnd = 0
 
-spikeAmpsToCancel6ALimit = 8 # Laur3ns: was 16
+spikeAmpsToCancel6ALimit = 16 # laur3ns: Tried 8A, but car got stuck at 6A still sometimes
 timeLastGreenEnergyCheck = 0
 hourResumeTrackGreenEnergy = -1
 kWhDelivered = 119
@@ -3041,7 +3040,7 @@ while True:
                         # EU chargers need a spike to only 16A.  This value
                         # comes from a forum post and has not been directly
                         # tested.
-                        spikeAmpsToCancel6ALimit = 8 # Laur3ns: was 16
+                        spikeAmpsToCancel6ALimit = 16 # laur3ns: tried 8A but car still got stuck at 6A sometimes
 
                     if(senderID == fakeTWCID):
                         print(time_now + ": Slave TWC %02X%02X reports same TWCID as master.  " \
