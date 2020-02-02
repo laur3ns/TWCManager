@@ -3,16 +3,18 @@
 # last update: Feb 2, 2020 by laur3ns
 
 start() {
-    screen -dm -S twc -L -Logfile ~/scripts/twc/TWCManager.log ~/scripts/twc/TWCManager.py
+   echo "Starting TWCManager..."
+   screen -dm -S twc -L -Logfile ~/scripts/twc/TWCManager.log ~/scripts/twc/TWCManager.py
 }
 
 stop() {
+   echo "Stopping TWCManager..."
     killall TWCManager.py
 }
 
 status() {
    ps auxww | fgrep TWCManager | fgrep -v grep
-   screen -ls twc
+   screen -ls twc && echo "Connect to the TWCManager screen with 'scren -r twc' and exit with Ctrl-A, Ctrl-D"
 }
 
 case "$1" in 
