@@ -117,8 +117,10 @@ import sys
 import traceback
 import sysv_ipc
 import json
+import mysql.connector
 from datetime import datetime
 import threading
+from math import sin, cos, sqrt, atan2, pi
 
 
 ##########################
@@ -150,7 +152,7 @@ rs485Adapter = '/dev/ttyUSB0'
 # 100 amp breaker * 0.8 = 80 here.
 # IF YOU'RE NOT SURE WHAT TO PUT HERE, ASK THE ELECTRICIAN WHO INSTALLED YOUR
 # CHARGER.
-wiringMaxAmpsAllTWCs = 40
+wiringMaxAmpsAllTWCs = 20
 
 # If all your chargers share a single circuit breaker, set wiringMaxAmpsPerTWC
 # to the same value as wiringMaxAmpsAllTWCs.
@@ -160,7 +162,7 @@ wiringMaxAmpsAllTWCs = 40
 # wiringMaxAmpsAllTWCs.
 # For example, if you have two TWCs each with a 50A breaker, set
 # wiringMaxAmpsPerTWC = 50 * 0.8 = 40 and wiringMaxAmpsAllTWCs = 40 + 40 = 80.
-wiringMaxAmpsPerTWC = 40
+wiringMaxAmpsPerTWC = 20
 
 # https://teslamotorsclub.com/tmc/threads/model-s-gen2-charger-efficiency-testing.78740/#post-1844789
 # says you're using 10.85% more power (91.75/82.77=1.1085) charging at 5A vs 40A,
@@ -192,7 +194,8 @@ wiringMaxAmpsPerTWC = 40
 # can't reach that rate, so charging as fast as your wiring supports is best
 # from that standpoint.  It's not clear how much damage charging at slower
 # rates really does.
-minAmpsPerTWC = 12
+# Nicer82: set to 0 to start charing as soon as there is any surplus energy
+minAmpsPerTWC = 3
 
 # When you have more than one vehicle associated with the Tesla car API and
 # onlyChargeMultiCarsAtHome = True, cars will only be controlled by the API when
@@ -207,6 +210,11 @@ minAmpsPerTWC = 12
 # a car not at home being stopped from charging by the API.
 onlyChargeMultiCarsAtHome = True
 
+# Nicer82: option to always check for location before sending start/stop charge
+# instructions to the car, independent from onlyChargeMultiCarsAtHome var or how
+# many cars you have
+alwaysOnlyChargeAtHome = False
+
 # After determining how much green energy is available for charging, we add
 # greenEnergyAmpsOffset to the value. This is most often given a negative value
 # equal to the average amount of power consumed by everything other than car
@@ -220,7 +228,15 @@ onlyChargeMultiCarsAtHome = True
 # North American 240V grid. In other words, during car charging, you want your
 # utility meter to show a value close to 0kW meaning no energy is being sent to
 # or from the grid.
+# Nicer82: I don't use greenEnergyAmpsOffset because we look at the actual home consumption from EnergyMonitor.
 greenEnergyAmpsOffset = 0
+
+# Nicer82: Connection information to connect to the EnergyMonitor database.
+emHost = '192.168.1.2'
+emPort = 3307
+emDatabase = 'EnergyMonitor'
+emUser = 'EnergyMonitor'
+emPassword = 'EnergyMonitor'
 
 # Choose how much debugging info to output.
 # 0 is no output other than errors.
@@ -229,7 +245,7 @@ greenEnergyAmpsOffset = 0
 # 9 includes raw RS-485 messages transmitted and received (2-3 per sec)
 # 10 is all info.
 # 11 is more than all info.  ;)
-debugLevel = 1
+debugLevel = 0
 
 # Choose whether to display milliseconds after time on each line of debug info.
 displayMilliseconds = False
@@ -667,7 +683,7 @@ def car_api_available(email = None, password = None, charge = None):
 
     now = time.time()
     apiResponseDict = {}
-
+    
     if(now - carApiLastErrorTime < carApiErrorRetryMins*60):
         # It's been under carApiErrorRetryMins minutes since the car API
         # generated an error. To keep strain off Tesla's API servers, wait
@@ -685,12 +701,12 @@ def car_api_available(email = None, password = None, charge = None):
                   str(int(carApiErrorRetryMins*60 - (now - carApiLastErrorTime))) +
                   ' more seconds due to recent error.')
         return False
-
+    
     # Tesla car API info comes from https://timdorr.docs.apiary.io/
     if(carApiBearerToken == '' or carApiTokenExpireTime - now < 30*24*60*60):
         cmd = None
         apiResponse = b''
-
+       
         # If we don't have a bearer token or our refresh token will expire in
         # under 30 days, get a new bearer token.  Refresh tokens expire in 45
         # days when first issued, so we'll get a new token every 15 days.
@@ -995,6 +1011,9 @@ def car_api_available(email = None, password = None, charge = None):
 
     return True
 
+def deg2rad(deg):
+    return deg * pi/180.0
+
 def car_api_charge(charge):
     # Do not call this function directly.  Call by using background thread:
     # queue_background_task({'cmd':'charge', 'charge':<True/False>})
@@ -1039,7 +1058,7 @@ def car_api_charge(charge):
         # more than once per minute.
         carApiLastStartOrStopChargeTime = now
 
-        if(onlyChargeMultiCarsAtHome and len(carApiVehicles) > 1):
+        if(alwaysOnlyChargeAtHome or (onlyChargeMultiCarsAtHome and len(carApiVehicles) > 1)):
             # When multiple cars are enrolled in the car API, only start/stop
             # charging cars parked at home.
 
@@ -1056,27 +1075,32 @@ def car_api_charge(charge):
                 homeLat = vehicle.lat
                 homeLon = vehicle.lon
                 save_settings()
+            
+            # Nicer82: Implemented accurate distance calculation using the ‘Haversine’ formula.
+            # The problem with the implementation from cdragon is that if the vehicle is on 
+            # the same lat or long by accident, it will still get reached, which is wrong.
+            # Calculating the distance between the two points is the accurate way.
+            # Set the distance tolerance to 500m in my case.
+            
+            earthDiameter = 6371.0 # Earth diameter in km. Change to 20902231.0 to switch to feet, but also change distanceTolerance in that case to feet.
+            distanceTolerance = 0.5 # Distance tolerated between home and vehicle in km.
 
-            # 1 lat or lon = ~364488.888 feet. The exact feet is different depending
-            # on the value of latitude, but this value should be close enough for
-            # our rough needs.
-            # 1/364488.888 * 10560 = 0.0289.
-            # So if vehicle is within 0289 lat and lon of homeLat/Lon,
-            # it's within ~10560 feet (2 miles) of home and we'll consider it to be
-            # at home.
-            # I originally tried using 0.00548 (~2000 feet) but one night the car
-            # consistently reported being 2839 feet away from home despite being
-            # parked in the exact spot I always park it.  This is very odd because
-            # GPS is supposed to be accurate to within 12 feet.  Tesla phone app
-            # also reports the car is not at its usual address.  I suspect this
-            # is another case of a bug that's been causing car GPS to freeze  the
-            # last couple months.
-            if(abs(homeLat - vehicle.lat) > 0.0289
-               or abs(homeLon - vehicle.lon) > 0.0289):
+            dLat = deg2rad(vehicle.lat-homeLat);  
+            dLon = deg2rad(vehicle.lon-homeLon); 
+
+            a = sin(dLat/2) * sin(dLat/2) + cos(deg2rad(homeLat)) * cos(deg2rad(vehicle.lat)) * sin(dLon/2) * sin(dLon/2)
+            c = 2 * atan2(sqrt(a), sqrt(1-a)); 
+            distance = earthDiameter * c
+            
+            if(distance <= distanceTolerance):
+                if(debugLevel >= 1):
+                    print(time_now() + ': Vehicle ID ' + str(vehicle.ID) +
+                          ' is concidered at home: only ' + str(distance*1000.0) + ' meter away.')
+            else:
                 # Vehicle is not at home, so don't change its charge state.
                 if(debugLevel >= 1):
                     print(time_now() + ': Vehicle ID ' + str(vehicle.ID) +
-                          ' is not at home.  Do not ' + startOrStop + ' charge.')
+                          ' is not at home: ' + str(distance) + ' km away.')
                 continue
 
             # If you send charge_start/stop less than 1 second after calling
@@ -1280,43 +1304,46 @@ def check_green_energy():
     # values or authentication. The -s option prevents curl from
     # displaying download stats. -m 60 prevents the whole
     # operation from taking over 60 seconds.
-    greenEnergyData = run_process('curl -s -m 60 "http://192.168.13.58/history/export.csv?T=1&D=0&M=1&C=1"')
-
-    # In case, greenEnergyData will contain something like this:
-    #   MTU, Time, Power, Cost, Voltage
-    #   Solar,11/11/2017 14:20:43,-2.957,-0.29,124.3
-    # The only part we care about is -2.957 which is negative
-    # kW currently being generated. When 0kW is generated, the
-    # negative disappears so we make it optional in the regex
-    # below.
-    m = re.search(b'^Solar,[^,]+,-?([^, ]+),', greenEnergyData, re.MULTILINE)
-    if(m):
-        solarW = int(float(m.group(1)) * 1000)
-
+    
+    # Nicer82: Adjusted this to work with an energy monitor. The available power = the last measured volume on the mains point (Usage - Supply).
+    newMaxAmpsToDivideAmongSlaves = 0.0
+    
+    try:
+        connection = mysql.connector.connect(user=emUser,
+                                             password=emPassword,
+                                             host=emHost,
+                                             port=emPort,
+                                             database=emDatabase)
+        cursor = connection.cursor()
+        # Get the last available VolumeData record that is not older then 15 minutes. If data logging would be halted for some reason, we don't want to use outdated data.
+        cursor.execute("SELECT -TotalAvgW/240/3 AS AvgUsageCurrentPerPhase FROM VolumeData WHERE Point = 'Mains' AND TimeStamp > DATE_SUB(UTC_TIMESTAMP(),INTERVAL 15 MINUTE) ORDER BY TimeStamp DESC LIMIT 1")
+        result = cursor.fetchall()
+        if(cursor.rowcount == 1):
+            newMaxAmpsToDivideAmongSlaves = float(result[0][0])
+            # Nicer82: Re-add the currently used amps by TWC, because it is included into the em data!
+            newMaxAmpsToDivideAmongSlaves += total_amps_actual_all_twcs()
+        else:
+            print(time_now() + " ERROR: No recent data found on energy monitor database {} on {}:{}".format(emDatabase,emHost,emPort))
+            newMaxAmpsToDivideAmongSlaves = 0.0
+        connection.close()
+        
+    except Exception as e:
+        print(time_now() + " ERROR: Can't fetch data from energy monitor database {} on {}:{}".format(emDatabase,emHost,emPort))
+        print(e)
+        newMaxAmpsToDivideAmongSlaves = 0.0
+              
+    if(newMaxAmpsToDivideAmongSlaves):
         # Use backgroundTasksLock to prevent changing maxAmpsToDivideAmongSlaves
         # if the main thread is in the middle of examining and later using
         # that value.
         backgroundTasksLock.acquire()
-
-        # Watts = Volts * Amps
-        # Car charges at 240 volts in North America so we figure
-        # out how many amps * 240 = solarW and limit the car to
-        # that many amps.
-        maxAmpsToDivideAmongSlaves = (solarW / 240) + \
-                                      greenEnergyAmpsOffset
-
-        if(debugLevel >= 1):
-            print("%s: Solar generating %dW so limit car charging to:\n" \
-                 "          %.2fA + %.2fA = %.2fA.  Charge when above %.0fA (minAmpsPerTWC)." % \
-                 (time_now(), solarW, (solarW / 240),
-                 greenEnergyAmpsOffset, maxAmpsToDivideAmongSlaves,
-                 minAmpsPerTWC))
+        
+        #Nicer82: I don't use greenEnergyAmpsOffset because we look at the actual home consumption from energy monitor
+        maxAmpsToDivideAmongSlaves = newMaxAmpsToDivideAmongSlaves
 
         backgroundTasksLock.release()
     else:
-        print(time_now() +
-            " ERROR: Can't determine current solar generation from:\n" +
-            str(greenEnergyData))
+        print(time_now() + " ERROR: Can't determine current solar generation")
 
 #
 # End functions
@@ -1950,7 +1977,7 @@ class TWCSlave:
                 # 8pm. Sunrise in most U.S. areas varies from a little before
                 # 6am in Jun to almost 7:30am in Nov before the clocks get set
                 # back an hour. Sunset can be ~4:30pm to just after 8pm.
-                if(ltNow.tm_hour < 6 or ltNow.tm_hour >= 20):
+                if(ltNow.tm_hour < 5 or ltNow.tm_hour >= 23):
                     maxAmpsToDivideAmongSlaves = 0
                 else:
                     queue_background_task({'cmd':'checkGreenEnergy'})
@@ -1984,7 +2011,8 @@ class TWCSlave:
 
         # Allocate this slave a fraction of maxAmpsToDivideAmongSlaves divided
         # by the number of cars actually charging.
-        fairShareAmps = int(maxAmpsToDivideAmongSlaves / numCarsCharging)
+        #Nicer82: to use this change with care, but in my case, it seems to work bettor on a EU charger rounding on 1 digit.
+        fairShareAmps = round(maxAmpsToDivideAmongSlaves / numCarsCharging,1)
         if(desiredAmpsOffered > fairShareAmps):
             desiredAmpsOffered = fairShareAmps
 
@@ -1997,6 +2025,7 @@ class TWCSlave:
         backgroundTasksLock.release()
 
         minAmpsToOffer = minAmpsPerTWC
+        
         if(self.minAmpsTWCSupports > minAmpsToOffer):
             minAmpsToOffer = self.minAmpsTWCSupports
 
@@ -2147,7 +2176,8 @@ class TWCSlave:
             # one second and 12.0A the next second, the car reduces its power
             # use to ~5.14-5.23A and refuses to go higher. So it seems best to
             # stick with whole amps.
-            desiredAmpsOffered = int(desiredAmpsOffered)
+            #Nicer82: to use this change with care, but in my case, it seems to work bettor on a EU charger rounding on 1 digit.
+            desiredAmpsOffered = round(desiredAmpsOffered,1)
 
             if(self.lastAmpsOffered == 0
                and now - self.timeLastAmpsOfferedChanged < 60
@@ -3030,10 +3060,10 @@ while True:
                     if(slaveTWC.protocolVersion == 1 and slaveTWC.minAmpsTWCSupports == 6):
                         if(len(msg) == 14):
                             slaveTWC.protocolVersion = 1
-                            slaveTWC.minAmpsTWCSupports = 5
+                            slaveTWC.minAmpsTWCSupports = 0.1
                         elif(len(msg) == 16):
                             slaveTWC.protocolVersion = 2
-                            slaveTWC.minAmpsTWCSupports = 6
+                            slaveTWC.minAmpsTWCSupports = 0.1
 
                         if(debugLevel >= 1):
                             print(time_now() + ": Set slave TWC %02X%02X protocolVersion to %d, minAmpsTWCSupports to %d." % \
