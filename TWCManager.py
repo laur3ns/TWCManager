@@ -1,4 +1,4 @@
-#! /usr/bin/python3
+#!/usr/bin/python3
 
 ################################################################################
 # Code and TWC protocol reverse engineering by Chris Dragon.
@@ -117,7 +117,6 @@ import sys
 import traceback
 import sysv_ipc
 import json
-import mysql.connector
 from datetime import datetime
 import threading
 from math import sin, cos, sqrt, atan2, pi
@@ -134,7 +133,7 @@ from math import sin, cos, sqrt, atan2, pi
 # parameter below.
 # If you're using a non-USB adapter like an RS485 shield, the value may need to
 # be something like '/dev/serial0'.
-rs485Adapter = '/dev/ttyUSB0'
+rs485Adapter = '/dev/serial/by-id/usb-FTDI_USB-RS485_Cable_FT2URZ1S-if00-port0'
 
 # Set wiringMaxAmpsAllTWCs to the maximum number of amps your charger wiring
 # can handle. I default this to a low 6A which should be safe with the minimum
@@ -152,7 +151,7 @@ rs485Adapter = '/dev/ttyUSB0'
 # 100 amp breaker * 0.8 = 80 here.
 # IF YOU'RE NOT SURE WHAT TO PUT HERE, ASK THE ELECTRICIAN WHO INSTALLED YOUR
 # CHARGER.
-wiringMaxAmpsAllTWCs = 20
+wiringMaxAmpsAllTWCs = 40
 
 # If all your chargers share a single circuit breaker, set wiringMaxAmpsPerTWC
 # to the same value as wiringMaxAmpsAllTWCs.
@@ -162,7 +161,7 @@ wiringMaxAmpsAllTWCs = 20
 # wiringMaxAmpsAllTWCs.
 # For example, if you have two TWCs each with a 50A breaker, set
 # wiringMaxAmpsPerTWC = 50 * 0.8 = 40 and wiringMaxAmpsAllTWCs = 40 + 40 = 80.
-wiringMaxAmpsPerTWC = 20
+wiringMaxAmpsPerTWC = 25
 
 # https://teslamotorsclub.com/tmc/threads/model-s-gen2-charger-efficiency-testing.78740/#post-1844789
 # says you're using 10.85% more power (91.75/82.77=1.1085) charging at 5A vs 40A,
@@ -195,7 +194,7 @@ wiringMaxAmpsPerTWC = 20
 # from that standpoint.  It's not clear how much damage charging at slower
 # rates really does.
 # Nicer82: set to 0 to start charing as soon as there is any surplus energy
-minAmpsPerTWC = 3
+minAmpsPerTWC = 0
 
 # When you have more than one vehicle associated with the Tesla car API and
 # onlyChargeMultiCarsAtHome = True, cars will only be controlled by the API when
@@ -208,7 +207,7 @@ minAmpsPerTWC = 3
 # expect it to be. If you encounter that problem with multiple vehicles, you can
 # set onlyChargeMultiCarsAtHome = False, but you may encounter the problem of
 # a car not at home being stopped from charging by the API.
-onlyChargeMultiCarsAtHome = True
+onlyChargeMultiCarsAtHome = False
 
 # Nicer82: option to always check for location before sending start/stop charge
 # instructions to the car, independent from onlyChargeMultiCarsAtHome var or how
@@ -231,12 +230,8 @@ alwaysOnlyChargeAtHome = False
 # Nicer82: I don't use greenEnergyAmpsOffset because we look at the actual home consumption from EnergyMonitor.
 greenEnergyAmpsOffset = 0
 
-# Nicer82: Connection information to connect to the EnergyMonitor database.
-emHost = '192.168.1.2'
-emPort = 3307
-emDatabase = 'EnergyMonitor'
-emUser = 'EnergyMonitor'
-emPassword = 'EnergyMonitor'
+# Laur3ns: Read DSMR info from json
+dsmrState = '/home/pi/private/dsmr_state.json'
 
 # Choose how much debugging info to output.
 # 0 is no output other than errors.
@@ -245,7 +240,7 @@ emPassword = 'EnergyMonitor'
 # 9 includes raw RS-485 messages transmitted and received (2-3 per sec)
 # 10 is all info.
 # 11 is more than all info.  ;)
-debugLevel = 0
+debugLevel = 1
 
 # Choose whether to display milliseconds after time on each line of debug info.
 displayMilliseconds = False
@@ -269,7 +264,7 @@ baud = 9600
 # This isn't really too important because even if this ID matches another TWC on
 # the network, that TWC will pick its own new random ID as soon as it sees ours
 # conflicts.
-fakeTWCID = bytearray(b'\x77\x77')
+fakeTWCID = bytearray(b'\x78\x87')
 
 # TWCs send a seemingly-random byte after their 2-byte TWC id in a number of
 # messages. I call this byte their "Sign" for lack of a better term. The byte
@@ -277,8 +272,8 @@ fakeTWCID = bytearray(b'\x77\x77')
 # values for now because I don't know if there are any rules to what values can
 # be chosen. I picked 77 because it's easy to recognize when looking at logs.
 # These shouldn't need to be changed.
-masterSign = bytearray(b'\x77')
-slaveSign = bytearray(b'\x77')
+masterSign = bytearray(b'\x88')
+slaveSign = bytearray(b'\x88')
 
 #
 # End configuration parameters
@@ -682,8 +677,7 @@ def car_api_available(email = None, password = None, charge = None):
            carApiTokenExpireTime, carApiVehicles
 
     now = time.time()
-    apiResponseDict = {}
-    
+    apiResponseDict = {}  
     if(now - carApiLastErrorTime < carApiErrorRetryMins*60):
         # It's been under carApiErrorRetryMins minutes since the car API
         # generated an error. To keep strain off Tesla's API servers, wait
@@ -700,13 +694,11 @@ def car_api_available(email = None, password = None, charge = None):
             print(time_now() + ': Car API disabled for ' +
                   str(int(carApiErrorRetryMins*60 - (now - carApiLastErrorTime))) +
                   ' more seconds due to recent error.')
-        return False
-    
+        return False   
     # Tesla car API info comes from https://timdorr.docs.apiary.io/
     if(carApiBearerToken == '' or carApiTokenExpireTime - now < 30*24*60*60):
         cmd = None
-        apiResponse = b''
-       
+        apiResponse = b''   
         # If we don't have a bearer token or our refresh token will expire in
         # under 30 days, get a new bearer token.  Refresh tokens expire in 45
         # days when first issued, so we'll get a new token every 15 days.
@@ -1075,7 +1067,6 @@ def car_api_charge(charge):
                 homeLat = vehicle.lat
                 homeLon = vehicle.lon
                 save_settings()
-            
             # Nicer82: Implemented accurate distance calculation using the ‘Haversine’ formula.
             # The problem with the implementation from cdragon is that if the vehicle is on 
             # the same lat or long by accident, it will still get reached, which is wrong.
@@ -1238,6 +1229,10 @@ def car_api_charge(charge):
 
 def queue_background_task(task):
     global backgroundTasksQueue, backgroundTasksCmds
+
+    if(debugLevel >= 10):
+        print(time_now() + ': queue_background_task - {} '.format(task['cmd']))
+
     if(task['cmd'] in backgroundTasksCmds):
         # Some tasks, like cmd='charge', will be called once per second until
         # a charge starts or we determine the car is done charging.  To avoid
@@ -1257,7 +1252,12 @@ def background_tasks_thread():
     global backgroundTasksQueue, backgroundTasksCmds, carApiLastErrorTime
 
     while True:
+
         task = backgroundTasksQueue.get()
+
+        if(debugLevel >= 10):
+            print(time_now() + ': background_tasks_thread - {} '.format(task['cmd']))
+
 
         if(task['cmd'] == 'charge'):
             # car_api_charge does nothing if it's been under 60 secs since it
@@ -1280,8 +1280,8 @@ def background_tasks_thread():
         backgroundTasksQueue.task_done()
 
 def check_green_energy():
-    global debugLevel, maxAmpsToDivideAmongSlaves, greenEnergyAmpsOffset, \
-           minAmpsPerTWC, backgroundTasksLock
+    global debugLevel, wiringMaxAmpsAllTWCs, maxAmpsToDivideAmongSlaves, greenEnergyAmpsOffset, \
+           minAmpsPerTWC, backgroundTasksLock, dsmrState
 
     # I check solar panel generation using an API exposed by The
     # Energy Detective (TED). It's a piece of hardware available
@@ -1304,40 +1304,47 @@ def check_green_energy():
     # values or authentication. The -s option prevents curl from
     # displaying download stats. -m 60 prevents the whole
     # operation from taking over 60 seconds.
-    
     # Nicer82: Adjusted this to work with an energy monitor. The available power = the last measured volume on the mains point (Usage - Supply).
     newMaxAmpsToDivideAmongSlaves = 0.0
-    
-    try:
-        connection = mysql.connector.connect(user=emUser,
-                                             password=emPassword,
-                                             host=emHost,
-                                             port=emPort,
-                                             database=emDatabase)
-        cursor = connection.cursor()
-        # Get the last available VolumeData record that is not older then 15 minutes. If data logging would be halted for some reason, we don't want to use outdated data.
-        cursor.execute("SELECT -TotalAvgW/240/3 AS AvgUsageCurrentPerPhase FROM VolumeData WHERE Point = 'Mains' AND TimeStamp > DATE_SUB(UTC_TIMESTAMP(),INTERVAL 15 MINUTE) ORDER BY TimeStamp DESC LIMIT 1")
-        result = cursor.fetchall()
-        if(cursor.rowcount == 1):
-            newMaxAmpsToDivideAmongSlaves = float(result[0][0])
-            # Nicer82: Re-add the currently used amps by TWC, because it is included into the em data!
-            newMaxAmpsToDivideAmongSlaves += total_amps_actual_all_twcs()
-        else:
-            print(time_now() + " ERROR: No recent data found on energy monitor database {} on {}:{}".format(emDatabase,emHost,emPort))
-            newMaxAmpsToDivideAmongSlaves = 0.0
-        connection.close()
-        
-    except Exception as e:
-        print(time_now() + " ERROR: Can't fetch data from energy monitor database {} on {}:{}".format(emDatabase,emHost,emPort))
-        print(e)
-        newMaxAmpsToDivideAmongSlaves = 0.0
-              
+
+    attempts = 3
+    state = False
+    while attempts:
+        try:
+            with open(dsmrState, 'r') as infile:
+                state = json.load(infile)
+            break
+        except:
+            print ("Error reading {} file".format(dsmrState))
+            attempts -= 1
+
+
+    if (not state):
+        return
+
+    # Check max current versus fuse rating
+    current_max = state['state']['current_max']
+    if current_max > wiringMaxAmpsAllTWCs:
+        print ("ERROR: Current: {}A > wiringMaxAmpsAllTWCs: {}A".format(current_max, wiringMaxAmpsAllTWCs))
+
+    current_amps_actual_all_twcs = total_amps_actual_all_twcs()
+
+    newMaxAmpsToDivideAmongSlaves = min(wiringMaxAmpsAllTWCs, wiringMaxAmpsAllTWCs - current_max + current_amps_actual_all_twcs)
+
+    if(debugLevel >= 1):
+        print(time_now() + ": Setting newMaxAmpsToDivideAmongSlaves ({}) = wiringMaxAmpsAllTWCs ({}) - current_max ({}) + current_amps_actual_all_twcs ({})".format(newMaxAmpsToDivideAmongSlaves, wiringMaxAmpsAllTWCs, current_max, current_amps_actual_all_twcs))
+
+#    except Exception as e:
+#        print(time_now() + " ERROR: Can't fetch data from energy monitor database {} on {}:{}".format(emDatabase,emHost,emPort))
+#        print(e)
+#        newMaxAmpsToDivideAmongSlaves = 0.0
+
     if(newMaxAmpsToDivideAmongSlaves):
         # Use backgroundTasksLock to prevent changing maxAmpsToDivideAmongSlaves
         # if the main thread is in the middle of examining and later using
         # that value.
         backgroundTasksLock.acquire()
-        
+
         #Nicer82: I don't use greenEnergyAmpsOffset because we look at the actual home consumption from energy monitor
         maxAmpsToDivideAmongSlaves = newMaxAmpsToDivideAmongSlaves
 
@@ -1488,7 +1495,7 @@ class TWCSlave:
     # Protocol 2 TWCs tend to respond to commands sent using protocol 1, so
     # default to that till we know for sure we're talking to protocol 2.
     protocolVersion = 1
-    minAmpsTWCSupports = 6
+    minAmpsTWCSupports = 6 # Laur3ns: not sure if 5 would work, keep 6
     masterHeartbeatData = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00')
     timeLastRx = time.time()
 
@@ -1569,7 +1576,7 @@ class TWCSlave:
             if(
                 debugOutputCompare != self.lastHeartbeatDebugOutput
                 or abs(ampsUsed - lastAmpsUsed) >= 1.0
-                or time.time() - self.timeLastHeartbeatDebugOutput > 600
+                or time.time() - self.timeLastHeartbeatDebugOutput > 60 # was 600s
                 or debugLevel >= 11
             ):
                 print(time_now() + debugOutput)
@@ -1970,17 +1977,18 @@ class TWCSlave:
         else:
             if(nonScheduledAmpsMax > -1):
                 maxAmpsToDivideAmongSlaves = nonScheduledAmpsMax
-            elif(now - timeLastGreenEnergyCheck > 60):
+            elif(now - timeLastGreenEnergyCheck > 3): # Laur3ns: increase interval to every 3s
                 timeLastGreenEnergyCheck = now
 
                 # Don't bother to check solar generation before 6am or after
                 # 8pm. Sunrise in most U.S. areas varies from a little before
                 # 6am in Jun to almost 7:30am in Nov before the clocks get set
                 # back an hour. Sunset can be ~4:30pm to just after 8pm.
-                if(ltNow.tm_hour < 5 or ltNow.tm_hour >= 23):
-                    maxAmpsToDivideAmongSlaves = 0
-                else:
-                    queue_background_task({'cmd':'checkGreenEnergy'})
+                #Nicer82: in Belgium even after 8pm we can still get excess green energy.
+                #if(ltNow.tm_hour < 6 or ltNow.tm_hour >= 21):
+                #    maxAmpsToDivideAmongSlaves = 0
+                #else:
+                queue_background_task({'cmd':'checkGreenEnergy'})
 
         # Use backgroundTasksLock to prevent the background thread from changing
         # the value of maxAmpsToDivideAmongSlaves after we've checked the value
@@ -2011,8 +2019,9 @@ class TWCSlave:
 
         # Allocate this slave a fraction of maxAmpsToDivideAmongSlaves divided
         # by the number of cars actually charging.
-        #Nicer82: to use this change with care, but in my case, it seems to work bettor on a EU charger rounding on 1 digit.
-        fairShareAmps = round(maxAmpsToDivideAmongSlaves / numCarsCharging,1)
+        #Nicer82: Round amps instead of using int value to get more accurate amps.
+        #Laur3ns: back to int to avoid rounding up
+        fairShareAmps = int(maxAmpsToDivideAmongSlaves / numCarsCharging)
         if(desiredAmpsOffered > fairShareAmps):
             desiredAmpsOffered = fairShareAmps
 
@@ -2025,7 +2034,6 @@ class TWCSlave:
         backgroundTasksLock.release()
 
         minAmpsToOffer = minAmpsPerTWC
-        
         if(self.minAmpsTWCSupports > minAmpsToOffer):
             minAmpsToOffer = self.minAmpsTWCSupports
 
@@ -2176,8 +2184,9 @@ class TWCSlave:
             # one second and 12.0A the next second, the car reduces its power
             # use to ~5.14-5.23A and refuses to go higher. So it seems best to
             # stick with whole amps.
-            #Nicer82: to use this change with care, but in my case, it seems to work bettor on a EU charger rounding on 1 digit.
-            desiredAmpsOffered = round(desiredAmpsOffered,1)
+            #Nicer82: Round amps instead of using int value to get more accurate amps.
+            #Laur3ns: int prevents rounding up, which could result in >1A overuse with 2+ TWCs
+            desiredAmpsOffered = int(desiredAmpsOffered)
 
             if(self.lastAmpsOffered == 0
                and now - self.timeLastAmpsOfferedChanged < 60
@@ -2211,7 +2220,7 @@ class TWCSlave:
                 # spikeAmpsToCancel6ALimit of power draw. In fact, the car is
                 # slow enough to respond that even with 10s at 21A the most I've
                 # seen it actually draw starting at 6A is 13A.
-                if(debugLevel >= 10):
+                if(debugLevel >= 10): 
                     print('desiredAmpsOffered=' + str(desiredAmpsOffered) +
                           ' spikeAmpsToCancel6ALimit=' + str(spikeAmpsToCancel6ALimit) +
                           ' self.lastAmpsOffered=' + str(self.lastAmpsOffered) +
@@ -2282,7 +2291,7 @@ class TWCSlave:
                         if(debugLevel >= 1):
                             print(time_now() + ': Car stuck when offered spikeAmpsToCancel6ALimit.  Offering 2 less.')
                         desiredAmpsOffered = spikeAmpsToCancel6ALimit - 2.0
-                    elif(now - self.timeLastAmpsOfferedChanged > 5):
+                    elif(now - self.timeLastAmpsOfferedChanged > 7): # Laur3ns: was 5s
                         # self.lastAmpsOffered hasn't gotten the car to draw
                         # enough amps for over 5 seconds, so try
                         # spikeAmpsToCancel6ALimit
@@ -2307,7 +2316,7 @@ class TWCSlave:
                     if(debugLevel >= 10):
                         print('Reduce amps: time - self.timeLastAmpsOfferedChanged ' +
                             str(int(now - self.timeLastAmpsOfferedChanged)))
-                    if(now - self.timeLastAmpsOfferedChanged < 5):
+                    if(now - self.timeLastAmpsOfferedChanged < 3): # Laur3ns: wait a minimum of 3s
                         desiredAmpsOffered = self.lastAmpsOffered
 
         # set_last_amps_offered does some final checks to see if the new
@@ -2444,7 +2453,7 @@ scheduledAmpsDaysBitmap = 0x7F
 chargeNowAmps = 0
 chargeNowTimeEnd = 0
 
-spikeAmpsToCancel6ALimit = 16
+spikeAmpsToCancel6ALimit = 8 # Laur3ns: was 16
 timeLastGreenEnergyCheck = 0
 hourResumeTrackGreenEnergy = -1
 kWhDelivered = 119
@@ -3032,7 +3041,7 @@ while True:
                         # EU chargers need a spike to only 16A.  This value
                         # comes from a forum post and has not been directly
                         # tested.
-                        spikeAmpsToCancel6ALimit = 16
+                        spikeAmpsToCancel6ALimit = 8 # Laur3ns: was 16
 
                     if(senderID == fakeTWCID):
                         print(time_now + ": Slave TWC %02X%02X reports same TWCID as master.  " \
@@ -3060,10 +3069,10 @@ while True:
                     if(slaveTWC.protocolVersion == 1 and slaveTWC.minAmpsTWCSupports == 6):
                         if(len(msg) == 14):
                             slaveTWC.protocolVersion = 1
-                            slaveTWC.minAmpsTWCSupports = 0.1
+                            slaveTWC.minAmpsTWCSupports = 5
                         elif(len(msg) == 16):
                             slaveTWC.protocolVersion = 2
-                            slaveTWC.minAmpsTWCSupports = 0.1
+                            slaveTWC.minAmpsTWCSupports = 6
 
                         if(debugLevel >= 1):
                             print(time_now() + ": Set slave TWC %02X%02X protocolVersion to %d, minAmpsTWCSupports to %d." % \
