@@ -28,7 +28,8 @@ rsync -Cavr --progress --delete \
  /home/pi/scripts/TWCManager/ \
  /home/pi/scripts/twc/
 
-chmod +x /home/pi/scripts/twc/TWCManager.py
-chmod +x /home/pi/scripts/twc/twcmanagerctl
+cd /home/pi/scripts/twc/
+chmod +x TWCManager.py twcmanagerctl update-twc.sh
 
+# Restart
 /home/pi/scripts/twc/twcmanagerctl restart

@@ -13,8 +13,9 @@ stop() {
 }
 
 status() {
-   ps auxww | fgrep TWCManager | fgrep -v grep
-   screen -ls twc && echo "Connect to the TWCManager screen with 'scren -r twc' and exit with Ctrl-A, Ctrl-D"
+   # ps auxww | fgrep TWCManager | fgrep -v grep
+   echo -n "TWC Manager is "
+   screen -ls twc -q || echo "NOT RUNNING" && echo "RUNNING, to connect run 'screen -r twc' and exit with Ctrl-A, Ctrl-D"
 }
 
 case "$1" in 
