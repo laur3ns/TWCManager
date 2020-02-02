@@ -3,13 +3,14 @@
 # last update: Feb 2, 2020 by laur3ns
 
 start() {
-   echo "Starting TWCManager..."
-   screen -dm -S twc -L -Logfile ~/scripts/twc/TWCManager.log ~/scripts/twc/TWCManager.py
+   echo "Starting TWCManager... "
+   screen -dm -S twc -L -Logfile ~/scripts/twc/TWCManager.log ~/scripts/twc/TWCManager.py && echo "OK"
 }
 
 stop() {
-   echo "Stopping TWCManager..."
-    killall TWCManager.py
+   echo -n "Stopping TWCManager... "
+   screen -S twc -X quit && echo "DONE"
+   killall -q TWCManager.py
 }
 
 status() {
