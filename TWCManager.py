@@ -151,7 +151,7 @@ rs485Adapter = '/dev/serial/by-id/usb-FTDI_USB-RS485_Cable_FT2URZ1S-if00-port0'
 # 100 amp breaker * 0.8 = 80 here.
 # IF YOU'RE NOT SURE WHAT TO PUT HERE, ASK THE ELECTRICIAN WHO INSTALLED YOUR
 # CHARGER.
-wiringMaxAmpsAllTWCs = 25
+wiringMaxAmpsAllTWCs = 24
 
 # If all your chargers share a single circuit breaker, set wiringMaxAmpsPerTWC
 # to the same value as wiringMaxAmpsAllTWCs.
@@ -194,7 +194,7 @@ wiringMaxAmpsPerTWC = 16
 # from that standpoint.  It's not clear how much damage charging at slower
 # rates really does.
 # Nicer82: set to 0 to start charing as soon as there is any surplus energy
-minAmpsPerTWC = 8
+minAmpsPerTWC = 0
 
 # When you have more than one vehicle associated with the Tesla car API and
 # onlyChargeMultiCarsAtHome = True, cars will only be controlled by the API when
