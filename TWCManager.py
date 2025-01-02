@@ -1315,7 +1315,7 @@ def check_green_energy():
                 state = json.load(infile)
             break
         except:
-            sleep(0.5)
+            time.sleep(0.5)
             attempts -= 1
 
 
@@ -1344,7 +1344,7 @@ def check_green_energy():
     if(newMaxAmpsToDivideAmongSlaves > current_amps_actual_all_twcs):
         if(debugLevel >= 1):
             print(time_now() + "WARNING: We have more power available than we're currently using.  We can increase the charge rate after 30s delay.")
-        sleep(30)
+        time.sleep(30)
 
     # Laur3ns: If we have less power available than we're currently using, we need to decrease the charge rate.
     if(newMaxAmpsToDivideAmongSlaves < current_amps_actual_all_twcs):
