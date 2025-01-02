@@ -1341,14 +1341,14 @@ def check_green_energy():
 #        newMaxAmpsToDivideAmongSlaves = 0.0
 
     # Laur3ns: If we have more power available than we're currently using, we can increase the charge rate.
-    if(newMaxAmpsToDivideAmongSlaves > maxAmpsToDivideAmongSlaves):
-        if(debugLevel >= 1):
+    if(newMaxAmpsToDivideAmongSlaves - maxAmpsToDivideAmongSlaves > 1):
+        if(debugLevel >= 2):
             print(time_now() + ": WARNING: We have more power available than we're currently using.  We can increase the charge rate after 30s delay.")
-        time.sleep(30)
+        time.sleep(10)
 
     # Laur3ns: If we have less power available than we're currently using, we need to decrease the charge rate.
     if(newMaxAmpsToDivideAmongSlaves < maxAmpsToDivideAmongSlaves):
-        if(debugLevel >= 1):
+        if(debugLevel >= 2):
             print(time_now() + ": WARNING: We have less power available than we're currently using.  We need to decrease the charge rate.")
 
     if(newMaxAmpsToDivideAmongSlaves):
