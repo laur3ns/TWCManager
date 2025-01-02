@@ -1315,11 +1315,12 @@ def check_green_energy():
                 state = json.load(infile)
             break
         except:
-            print ("Error reading {} file".format(dsmrState))
+            sleep(0.5)
             attempts -= 1
 
 
     if (not state):
+        print ("Error reading {} file".format(dsmrState))
         return
 
     # Check max current versus fuse rating
@@ -1338,6 +1339,17 @@ def check_green_energy():
 #        print(time_now() + " ERROR: Can't fetch data from energy monitor database {} on {}:{}".format(emDatabase,emHost,emPort))
 #        print(e)
 #        newMaxAmpsToDivideAmongSlaves = 0.0
+
+    # Laur3ns: If we have more power available than we're currently using, we can increase the charge rate.
+    if(newMaxAmpsToDivideAmongSlaves > current_amps_actual_all_twcs):
+        if(debugLevel >= 1):
+            print(time_now() + "WARNING: We have more power available than we're currently using.  We can increase the charge rate after 30s delay.")
+        sleep(30)
+
+    # Laur3ns: If we have less power available than we're currently using, we need to decrease the charge rate.
+    if(newMaxAmpsToDivideAmongSlaves < current_amps_actual_all_twcs):
+        if(debugLevel >= 1):
+            print(time_now() + "WARNING: We have less power available than we're currently using.  We need to decrease the charge rate.")
 
     if(newMaxAmpsToDivideAmongSlaves):
         # Use backgroundTasksLock to prevent changing maxAmpsToDivideAmongSlaves
@@ -1977,7 +1989,7 @@ class TWCSlave:
         else:
             if(nonScheduledAmpsMax > -1):
                 maxAmpsToDivideAmongSlaves = nonScheduledAmpsMax
-            elif(now - timeLastGreenEnergyCheck > 3): # Laur3ns: increase interval to every 3s
+            elif(now - timeLastGreenEnergyCheck > 1): # Laur3ns: increase interval to every 1s
                 timeLastGreenEnergyCheck = now
 
                 # Don't bother to check solar generation before 6am or after
