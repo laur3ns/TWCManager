@@ -111,6 +111,7 @@ import re
 import subprocess
 import queue
 import random
+import requests
 import math
 import struct
 import sys
@@ -274,6 +275,12 @@ fakeTWCID = bytearray(b'\x78\x87')
 # These shouldn't need to be changed.
 masterSign = bytearray(b'\x88')
 slaveSign = bytearray(b'\x88')
+
+
+# Home Assistant API endpoint and token + Entities to query
+API_URL = "http://192.168.0.145:8123/api/states/"
+API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJlYWQwY2I5MGYxZjc0ZTVkYWVjOTBiNGRkY2ZjMTQ5MiIsImlhdCI6MTczNTUwOTIzNywiZXhwIjoyMDUwODY5MjM3fQ.Wpp1eiMQv6jntyx9w68Kzmucbj9iGNYUbJ_p74Rd_14"
+ENTITIES = ["sensor.wnld_current_l1", "sensor.wnld_current_l2", "sensor.wnld_current_l3"]
 
 #
 # End configuration parameters
@@ -1279,6 +1286,41 @@ def background_tasks_thread():
         # in the queue are done.
         backgroundTasksQueue.task_done()
 
+def get_max_entity_value(base_url, token, entities):
+    """
+    Queries the states of the specified entities from Home Assistant's API
+    and returns the maximum numeric value.
+
+    :param base_url: Base URL of the Home Assistant API (e.g., "http://your-home-assistant-url:8123")
+    :param token: Long-lived access token for Home Assistant
+    :param entities: List of entity IDs to query
+    :return: Maximum numeric value among the entities, or None if no valid values are found
+    """
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    
+    values = []
+    for entity in entities:
+        try:
+            response = requests.get(f"{base_url}/api/states/{entity}", headers=headers)
+            response.raise_for_status()  # Raise an exception for HTTP error codes
+            entity_data = response.json()
+            
+            # Extract and convert the state to a float
+            state = float(entity_data.get("state", 0))
+            values.append(state)
+        except (ValueError, TypeError):
+            # Skip if the state cannot be converted to a float
+            print(f"Non-numeric state for {entity}. Skipping...")
+        except requests.exceptions.RequestException as e:
+            # Handle HTTP and network errors
+            print(f"Error querying {entity}: {e}")
+    
+    # Return the maximum value or None if the list is empty
+    return max(values, default=None)
+
 def check_green_energy():
     global debugLevel, wiringMaxAmpsAllTWCs, maxAmpsToDivideAmongSlaves, greenEnergyAmpsOffset, \
            minAmpsPerTWC, backgroundTasksLock, dsmrState
@@ -1307,24 +1349,16 @@ def check_green_energy():
     # Nicer82: Adjusted this to work with an energy monitor. The available power = the last measured volume on the mains point (Usage - Supply).
     newMaxAmpsToDivideAmongSlaves = 0.0
 
-    attempts = 3
-    state = False
-    while attempts:
-        try:
-            with open(dsmrState, 'r') as infile:
-                state = json.load(infile)
-            break
-        except:
-            time.sleep(0.5)
-            attempts -= 1
+    # Query HomeAssistant to get Tibber Pulse Current readings for all Phases and get Max
+    # This will be used to calculate the available power for charging.
+    current_max = get_max_entity_value(API_URL, API_TOKEN, ENTITIES)
 
+    if max_value is not None:
+        print(f"{time_now()}: Maximum phase load is: {max_value}A.")
+    else:
+        print(f"{time_now()}: ERROR: No valid numeric maximum phase load obtained.")
 
-    if (not state):
-        print ("Error reading {} file".format(dsmrState))
-        return
-
-    # Check max current versus fuse rating
-    current_max = state['state']['current_max']
+    # Check if the current_max is higher than the fuse rating
     if current_max > wiringMaxAmpsAllTWCs:
         print ("ERROR: Current: {}A > wiringMaxAmpsAllTWCs: {}A".format(current_max, wiringMaxAmpsAllTWCs))
 
