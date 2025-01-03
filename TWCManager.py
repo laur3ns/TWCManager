@@ -1353,8 +1353,8 @@ def check_green_energy():
     # This will be used to calculate the available power for charging.
     current_max = get_max_entity_value(API_URL, API_TOKEN, ENTITIES)
 
-    if max_value is not None:
-        print(f"{time_now()}: Maximum phase load is: {max_value}A.")
+    if current_max is not None:
+        print(f"{time_now()}: Maximum phase load is: {current_max}A.")
     else:
         print(f"{time_now()}: ERROR: No valid numeric maximum phase load obtained.")
 
