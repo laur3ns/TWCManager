@@ -1353,9 +1353,7 @@ def check_green_energy():
     # This will be used to calculate the available power for charging.
     current_max = get_max_entity_value(API_URL, API_TOKEN, ENTITIES)
 
-    if current_max is not None:
-        print(f"{time_now()}: Maximum phase load is: {current_max}A.")
-    else:
+    if current_max is None:
         print(f"{time_now()}: ERROR: No valid numeric maximum phase load obtained.")
 
     # Check if the current_max is higher than the fuse rating
