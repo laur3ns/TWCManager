@@ -277,10 +277,10 @@ masterSign = bytearray(b'\x88')
 slaveSign = bytearray(b'\x88')
 
 
-# Home Assistant API endpoint and token + Entities to query
+# Home Assistant API endpoint and token + Entity to query
 API_URL = "http://192.168.0.145:8123"
 API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJlYWQwY2I5MGYxZjc0ZTVkYWVjOTBiNGRkY2ZjMTQ5MiIsImlhdCI6MTczNTUwOTIzNywiZXhwIjoyMDUwODY5MjM3fQ.Wpp1eiMQv6jntyx9w68Kzmucbj9iGNYUbJ_p74Rd_14"
-ENTITIES = ["sensor.max_current_all_phases"]
+ENTITY = "sensor.max_current_all_phases"
 
 #
 # End configuration parameters
@@ -1286,43 +1286,68 @@ def background_tasks_thread():
         # in the queue are done.
         backgroundTasksQueue.task_done()
 
-def get_max_entity_value(base_url, token, entities):
+import requests
+import time
+
+def get_current_max_phase_load(base_url, token, entity, default_value, max_retries=3, retry_delay=2):
     """
-    Queries the states of the specified entities from Home Assistant's API
-    and returns the maximum numeric value.
+    Queries the state of the specified entity from Home Assistant's API
+    and returns the numeric value of the state. If the entity state is invalid 
+    or an error occurs, retries up to max_retries before logging the error 
+    and returning the default value.
 
     :param base_url: Base URL of the Home Assistant API (e.g., "http://your-home-assistant-url:8123")
     :param token: Long-lived access token for Home Assistant
-    :param entities: List of entity IDs to query
-    :return: Maximum numeric value among the entities, or None if no valid values are found
+    :param entity: Entity ID to query (e.g., "sensor.some_entity")
+    :param default_value: Default numeric value to return if no valid value is found
+    :param max_retries: Maximum number of retry attempts (default: 3)
+    :param retry_delay: Delay in seconds between retries (default: 2 seconds)
+    :return: Numeric value from the entity's state or the provided default_value
     """
 
-    global debugLevel, wiringMaxAmpsAllTWCs
-    
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    
-    values = []
-    for entity in entities:
+
+    current_max_phase_load = default_value  # Initialize with the default value
+
+    for attempt in range(1, max_retries + 1):
         try:
             response = requests.get(f"{base_url}/api/states/{entity}", headers=headers)
             response.raise_for_status()  # Raise an exception for HTTP error codes
+
             entity_data = response.json()
-            
-            # Extract and convert the state to a float
-            state = float(entity_data.get("state", 0))
-            values.append(state)
-        except (ValueError, TypeError):
-            # Skip if the state cannot be converted to a float
-            print(f"Non-numeric state for {entity}. Skipping...")
+            state_str = entity_data.get("state")
+
+            if state_str is not None:
+                # Attempt to convert the state to a float
+                current_max_phase_load = float(state_str)
+                return current_max_phase_load  # Successful retrieval
+            else:
+                print(f"Warning: Entity '{entity}' has no state. Using default value.")
+                return default_value
+
+        except ValueError:
+            # Handle state conversion errors
+            print(f"Error: Non-numeric state for entity '{entity}'. Using default value.")
+            return default_value
         except requests.exceptions.RequestException as e:
-            # Handle HTTP and network errors
-            print(f"Error querying {entity}: {e}")
-    
-    # Return the maximum value or wiringMaxAmpsAllTWCs if the list is empty
-    return max(values, default=wiringMaxAmpsAllTWCs)
+            # Log network or HTTP errors
+            print(f"Attempt {attempt}/{max_retries}: Error querying entity '{entity}': {e}")
+
+            if attempt < max_retries:
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print(f"All {max_retries} attempts failed. Returning default value.")
+                return default_value
+        except Exception as e:
+            # Log unexpected errors
+            print(f"Unexpected error for entity '{entity}': {e}")
+            return default_value
+
+    return current_max_phase_load
 
 def check_green_energy():
     global debugLevel, wiringMaxAmpsAllTWCs, maxAmpsToDivideAmongSlaves, greenEnergyAmpsOffset, \
@@ -1354,7 +1379,7 @@ def check_green_energy():
 
     # Query HomeAssistant to get Tibber Pulse Current readings for all Phases and get Max
     # This will be used to calculate the available power for charging.
-    current_max = get_max_entity_value(API_URL, API_TOKEN, ENTITIES)
+    current_max = get_current_max_phase_load(API_URL, API_TOKEN, ENTITY, wiringMaxAmpsAllTWCs)
 
     if current_max is None:
         print(f"{time_now()}: ERROR: No valid numeric maximum phase load obtained.")
