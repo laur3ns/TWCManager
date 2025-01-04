@@ -280,7 +280,7 @@ slaveSign = bytearray(b'\x88')
 # Home Assistant API endpoint and token + Entities to query
 API_URL = "http://192.168.0.145:8123"
 API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJlYWQwY2I5MGYxZjc0ZTVkYWVjOTBiNGRkY2ZjMTQ5MiIsImlhdCI6MTczNTUwOTIzNywiZXhwIjoyMDUwODY5MjM3fQ.Wpp1eiMQv6jntyx9w68Kzmucbj9iGNYUbJ_p74Rd_14"
-ENTITIES = ["sensor.wnld_current_l1", "sensor.wnld_current_l2", "sensor.wnld_current_l3"]
+ENTITIES = ["sensor.max_current_all_phases"]
 
 #
 # End configuration parameters
@@ -1321,7 +1321,7 @@ def get_max_entity_value(base_url, token, entities):
             # Handle HTTP and network errors
             print(f"Error querying {entity}: {e}")
     
-    # Return the maximum value or None if the list is empty
+    # Return the maximum value or wiringMaxAmpsAllTWCs if the list is empty
     return max(values, default=wiringMaxAmpsAllTWCs)
 
 def check_green_energy():
