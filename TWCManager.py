@@ -1296,6 +1296,9 @@ def get_max_entity_value(base_url, token, entities):
     :param entities: List of entity IDs to query
     :return: Maximum numeric value among the entities, or None if no valid values are found
     """
+
+    global debugLevel, wiringMaxAmpsAllTWCs
+    
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -1319,7 +1322,7 @@ def get_max_entity_value(base_url, token, entities):
             print(f"Error querying {entity}: {e}")
     
     # Return the maximum value or None if the list is empty
-    return max(values, default=None)
+    return max(values, default=wiringMaxAmpsAllTWCs)
 
 def check_green_energy():
     global debugLevel, wiringMaxAmpsAllTWCs, maxAmpsToDivideAmongSlaves, greenEnergyAmpsOffset, \
