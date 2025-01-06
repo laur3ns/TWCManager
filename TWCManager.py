@@ -152,7 +152,10 @@ rs485Adapter = '/dev/serial/by-id/usb-FTDI_USB-RS485_Cable_FT2URZ1S-if00-port0'
 # 100 amp breaker * 0.8 = 80 here.
 # IF YOU'RE NOT SURE WHAT TO PUT HERE, ASK THE ELECTRICIAN WHO INSTALLED YOUR
 # CHARGER.
-wiringMaxAmpsAllTWCs = 24
+wiringMaxAmpsAllTWCs = 25
+
+# Always offer 5 Amps lower than available to keep headroom for other devices
+safetyMarginAmps = 5
 
 # If all your chargers share a single circuit breaker, set wiringMaxAmpsPerTWC
 # to the same value as wiringMaxAmpsAllTWCs.
@@ -1351,7 +1354,7 @@ def get_current_max_phase_load(base_url, token, entity, default_value, max_retri
 
 def check_green_energy():
     global debugLevel, wiringMaxAmpsAllTWCs, maxAmpsToDivideAmongSlaves, greenEnergyAmpsOffset, \
-           minAmpsPerTWC, backgroundTasksLock, dsmrState
+           minAmpsPerTWC, backgroundTasksLock, dsmrState, safetyMarginAmps
 
     # I check solar panel generation using an API exposed by The
     # Energy Detective (TED). It's a piece of hardware available
@@ -1390,7 +1393,7 @@ def check_green_energy():
 
     current_amps_actual_all_twcs = total_amps_actual_all_twcs()
 
-    newMaxAmpsToDivideAmongSlaves = min(wiringMaxAmpsAllTWCs, wiringMaxAmpsAllTWCs - current_max + current_amps_actual_all_twcs)
+    newMaxAmpsToDivideAmongSlaves = min(wiringMaxAmpsAllTWCs, wiringMaxAmpsAllTWCs - current_max + current_amps_actual_all_twcs) - safetyMarginAmps
 
     if(debugLevel >= 1):
         print(time_now() + ": Setting newMaxAmpsToDivideAmongSlaves ({}) = wiringMaxAmpsAllTWCs ({}) - current_max ({}) + current_amps_actual_all_twcs ({})".format(newMaxAmpsToDivideAmongSlaves, wiringMaxAmpsAllTWCs, current_max, current_amps_actual_all_twcs))
