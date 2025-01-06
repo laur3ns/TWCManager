@@ -1396,7 +1396,7 @@ def check_green_energy():
     newMaxAmpsToDivideAmongSlaves = min(wiringMaxAmpsAllTWCs, wiringMaxAmpsAllTWCs - current_max + current_amps_actual_all_twcs) - safetyMarginAmps
 
     if(debugLevel >= 1):
-        print(time_now() + ": Setting newMaxAmpsToDivideAmongSlaves ({}) = wiringMaxAmpsAllTWCs ({}) - current_max ({}) + current_amps_actual_all_twcs ({})".format(newMaxAmpsToDivideAmongSlaves, wiringMaxAmpsAllTWCs, current_max, current_amps_actual_all_twcs))
+        print(time_now() + ": Setting newMaxAmpsToDivideAmongSlaves ({}) = wiringMaxAmpsAllTWCs ({}) - current_max ({}) + current_amps_actual_all_twcs ({}) - safetyMarginAmps ({})".format(newMaxAmpsToDivideAmongSlaves, wiringMaxAmpsAllTWCs, current_max, current_amps_actual_all_twcs, safetyMarginAmps ))
 
 #    except Exception as e:
 #        print(time_now() + " ERROR: Can't fetch data from energy monitor database {} on {}:{}".format(emDatabase,emHost,emPort))
